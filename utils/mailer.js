@@ -13,13 +13,15 @@ const transporter = nodemailer.createTransport({
 });
 
 // Send an email using async/await
-export const sendEmail = async () => {
+export const sendEmail = async (userEmail,otp) => {
   const info = await transporter.sendMail({
     from: '"Maddison Foo Koch" <maddison53@ethereal.email>',
-    to: "mehedi2hasan7@gmail.com, mehedi2hasan7@gmail.com",
+    to: userEmail,
     subject: "Hello ✔",
-    text: "Hello world?", // Plain-text version of the message
-    html: "<b>Hello world?</b>", // HTML version of the message
+    html: `
+        <p>Your OTP for password reset is: <b>${otp}</b></p>
+        <p>It will expire in 10 minutes.</p>
+      `
   });
 
   console.log("Message sent:", info.messageId);

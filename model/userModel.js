@@ -9,32 +9,38 @@ const createUserModel = (sequelize) => {
         autoIncrement: true,
         primaryKey: true,
       },
+
+      // Optional username if you want email login only
       username: {
         type: DataTypes.STRING,
-        allowNull: false,
-        unique: true, // unique constraint
+        allowNull: true, // optional if login via email
+        unique: true,
       },
+
       email: {
         type: DataTypes.STRING,
         allowNull: false,
-        validate: {
-          isEmail: true,
-        },
-        unique: true, // unique constraint
+        unique: true,
+        validate: { isEmail: true },
       },
+
       password: {
         type: DataTypes.STRING,
-        allowNull: true,
+        allowNull: false, // password required for login
       },
+
       role: {
         type: DataTypes.ENUM("user", "admin"),
         allowNull: false,
         defaultValue: "user",
       },
+
       refreshToken: {
         type: DataTypes.TEXT,
         allowNull: true,
       },
+
+      // Password reset OTP & expiry
       resetOTP: {
         type: DataTypes.STRING,
         allowNull: true,
@@ -43,22 +49,38 @@ const createUserModel = (sequelize) => {
         type: DataTypes.DATE,
         allowNull: true,
       },
+
+      // OTP request limit tracking
+      resetOTPLimit: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+      },
+      lastOTPRequest: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+
+      // Optional: email verification
+      isEmailVerified: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+      },
+
+      // Optional: account creation & update timestamps (Sequelize can handle automatically)
+      createdAt: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+      updatedAt: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
     },
     {
       indexes: [
-        {
-          unique: true,
-          fields: ["email"],
-        },
-        {
-          unique: true,
-          fields: ["username"],
-        },
-        // role should not be unique
-        // If you want a normal index for faster filtering by role:
-        {
-          fields: ["role"],
-        },
+        { unique: true, fields: ["email"] },
+        { unique: true, fields: ["username"] },
+        { fields: ["role"] }, // for faster queries by role
       ],
     }
   );

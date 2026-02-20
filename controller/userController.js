@@ -1,223 +1,193 @@
 import { generateAccessToken, generateRefreshToken } from "../auth/auth.js";
 import { User } from "../db/dbconnection.js";
 import bcrypt from "bcryptjs";
-import  jwt  from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+import { sendEmail } from "../utils/mailer.js";
+import { generateOTP } from "../utils/otpGenerator.js";
 
-
-// Login Controller
-// Handles user authentication and token generation
-
+// ---------------------- LOGIN ----------------------
 export const loginController = async (req, res) => {
-
-  // Extract username and password from request body
-  const { username, password } = req.body;
+  const { email, password } = req.body;
 
   try {
+    // Find user by email
+    const user = await User.findOne({ where: { email } });
+    if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
-    // Check if user exists in database
-    const exist = await User.findOne({ where: { username } });
+    // Compare password
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) return res.status(401).json({ message: "Invalid credentials" });
 
-    // If user not found → return unauthorized
-    if (!exist) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
+    // Generate tokens
+    const accessToken = generateAccessToken({ email: user.email, role: user.role });
+    const refreshToken = generateRefreshToken({ email: user.email, role: user.role });
 
-    // Compare entered password with hashed password in database
-    const isValid = await bcrypt.compare(password, exist.password);
-
-    // If password does not match → return unauthorized
-    if (!isValid) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
-
-    // Generate JWT access token (short-lived)
-    const accessToken = generateAccessToken({
-      username: exist.username,
-      role: exist.role
-    });
-
-    // Generate JWT refresh token (long-lived)
-    const refreshToken = generateRefreshToken({
-      username: exist.username,
-      role: exist.role
-    });
-
-    // Save refresh token in database (for token rotation / logout security)
-    await exist.update({refreshToken:refreshToken });
+    // Save refresh token and send cookie
+    await user.update({ refreshToken });
     res.cookie("refreshToken", refreshToken, { httpOnly: true, secure: true });
-    // Send success response with tokens
-        return res.status(200).json({
-        message: "User logged in",
-        userData: {
-            username: exist.username,
-            accessToken,
-            // refreshToken
-        }
-        });
 
+    return res.status(200).json({
+      message: "User logged in",
+      userData: {
+        email: user.email,
+        accessToken,
+      },
+    });
   } catch (error) {
-
-    //  Handle unexpected server errors
     console.error("Login Error:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
 
-
-
+// ---------------------- REGISTER ----------------------
 export const registerController = async (req, res) => {
-
-  // Extract user data from request body
-  const { username, password, email } = req.body;
+  const { email, password } = req.body;
 
   try {
+    if (!email || !password) return res.status(400).json({ message: "Email and password are required" });
 
-    // Basic validation (prevent empty fields)
-    if (!username || !password || !email) {
-      return res.status(400).json({ 
-        message: "Username, email and password are required" 
-      });
-    }
+    const existUser = await User.findOne({ where: { email } });
+    if (existUser) return res.status(409).json({ message: "User already exists" });
 
-    // Check if username OR email already exists
-    const existUser = await User.findOne({
-      where: { username }
-    });
-
-    if (existUser) {
-      return res.status(409).json({ 
-        message: "User already exists" 
-      });
-    }
-
-    // Hash password before saving (never store plain password)
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 5️⃣ Create new user in database
-    const user = await User.create({
-      username,
-      email,
-      password: hashedPassword,
-      role:"user" // default role
-    });
+    const user = await User.create({ email, password: hashedPassword, role: "user" });
 
-    // Send success response (never return password)
     return res.status(201).json({
       message: "User registered successfully",
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-      },
+      user: { id: user.id, email: user.email },
     });
-
   } catch (error) {
-
-    // Handle unexpected server errors
     console.error("Register Error:", error);
-    return res.status(500).json({ 
-      message: "Internal server error" 
-    });
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
-
+// ---------------------- REFRESH TOKEN ----------------------
 export const refreshTokenController = async (req, res) => {
   try {
     const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) return res.status(401).json({ message: "Refresh token not found" });
 
-    if (!refreshToken) {
-      return res.status(401).json({ message: "Refresh token not found" });
-    }
-
-    // Verify refresh token
     jwt.verify(refreshToken, process.env.JWT_SECRET_REFRESH, async (err, decoded) => {
-      if (err) {
-        return res.status(403).json({ message: "Invalid refresh token" });
-      }
+      if (err) return res.status(403).json({ message: "Invalid refresh token" });
 
-      // Check if token exists in DB
-      const user = await User.findOne({
-        where: { refreshToken:refreshToken }
-      });
+      const user = await User.findOne({ where: { refreshToken } });
+      if (!user) return res.status(403).json({ message: "User not found" });
 
-      if (!user) {
-        return res.status(403).json({ message: "User not found" });
-      }
-
-      // Generate new access token
-      const newAccessToken = generateAccessToken({
-        username: user.username,
-        role: user.role
-      });
-
-      return res.status(200).json({
-        accessToken: newAccessToken
-      });
+      const newAccessToken = generateAccessToken({ email: user.email, role: user.role });
+      return res.status(200).json({ accessToken: newAccessToken });
     });
-
   } catch (error) {
     console.error("Refresh Token Error:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
 
+// ---------------------- LOGOUT ----------------------
 export const logoutController = async (req, res) => {
   try {
     const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) return res.status(204).json({ message: "Already logged out" });
 
-    // If no refresh token exists
-    if (!refreshToken) {
-      return res.status(204).json({ message: "Already logged out" });
-    }
+    const user = await User.findOne({ where: { refreshToken } });
+    if (user) await user.update({ refreshToken: null });
 
-    // Find user with this refresh token
-    const user = await User.findOne({
-      where: { refreshToken }
-    });
-
-    if (user) {
-      // Remove refresh token from database
-      await user.update({ refreshToken: null });
-    }
-
-    // Clear cookie
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: true 
-    });
-    console.log("User logged out successfully");
-    return res.status(200).json({
-      message: "Logged out successfully"
-    });
-
+    res.clearCookie("refreshToken", { httpOnly: true, secure: true });
+    return res.status(200).json({ message: "Logged out successfully" });
   } catch (error) {
     console.error("Logout Error:", error);
-    return res.status(500).json({
-      message: "Internal server error"
-    });
+    return res.status(500).json({ message: "Internal server error" });
   }
+};
+
+// ---------------------- PROFILE ----------------------
+export const profileController = async (req, res) => {
+  return res.json({ message: "This is a protected profile route", user: req.user });
 };
 
 
 
-export const profileController =  async(req, res) =>{
-  return res.json("profile")
-}
+// ---------------------- FORGOT PASSWORD ----------------------
 
-
-export const forgotPasswordController  = async (req, res) => {
+export const requestPasswordReset = async (req, res) => { 
   try {
-    const {email} =  req.body;
-    console.log(email)
-    const exist = await User.findOne({where: {email:email}})
-    if(!exist) {
-      return res.status(401).json({message:"invalid credentials"})
+    const { email } = req.body;
+    const user = await User.findOne({ where: { email } });
+
+    // Always return success message to avoid revealing if email exists
+    if (!user) 
+      return res.status(200).json({ message: "If email exists, OTP has been sent" });
+
+    // --- OTP Abuse Protection ---
+    const now = new Date();
+
+    // Reset limit if last request was more than 1 hour ago
+    if (!user.lastOTPRequest || (now - user.lastOTPRequest) > 60 * 60 * 1000) {
+      user.resetOTPLimit = 0;
     }
-    return res.status(200).json({message:"code send to your email"})
+
+    // Check if user exceeded OTP requests
+    if (user.resetOTPLimit >= 5) {
+      return res.status(429).json({ message: "Too many OTP requests. Try again later." });
+    }
+
+    // Generate new OTP and expiry
+    const otp = generateOTP(6);
+    const otpExpiry = new Date(now.getTime() + 1 * 60 * 1000); // 10 min
+
+    // Update user with OTP, expiry, increment limit, and last request time
+    await user.update({
+      resetOTP: otp,
+      resetOTPExpiry: otpExpiry,
+      resetOTPLimit: user.resetOTPLimit + 1,
+      lastOTPRequest: now,
+    });
+
+    // Send OTP via email
+    await sendEmail(user.email, otp);
+
+    return res.status(200).json({ message: "If email exists, OTP has been sent" });
 
   } catch (error) {
-    console.log(error)
-    return res.status(500).json("not good")
+    console.error("Forgot Password Error:", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
-}
+};
+
+// ---------------------- RESET PASSWORD ----------------------
+
+export const resetPasswordController = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    // 1️⃣ Find user by email
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    // 2️⃣ Check if OTP matches and is not expired
+    if (!user.resetOTP || user.resetOTP !== otp || !user.resetOTPExpiry || user.resetOTPExpiry < new Date()) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    // 3️⃣ Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 4️⃣ Update user password and clear OTP fields + reset limit
+    await user.update({
+      password: hashedPassword,
+      resetOTP: null,
+      resetOTPExpiry: null,
+      resetOTPLimit: 0,
+      lastOTPRequest: null,
+    });
+
+    return res.status(200).json({ message: "Password has been reset successfully" });
+
+  } catch (error) {
+    console.error("Reset Password Error:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};

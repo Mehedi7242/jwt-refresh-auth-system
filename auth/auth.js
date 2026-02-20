@@ -1,16 +1,17 @@
 import jwt from 'jsonwebtoken';
 import 'dotenv/config';
+import crypto from "crypto";
 
 // Generate Access Token (short-lived)
 const generateAccessToken = (user) => {
-  // user = { username: "...", role: "..." }
+  // user = { email: "...", role: "..." }
   return jwt.sign(
     {
-      username: user.username,
+      email: user.email,
       role: user.role
     },
     process.env.JWT_SECRET,
-    { expiresIn: '5min', algorithm: 'HS256' }
+    { expiresIn: '5m', algorithm: 'HS256' }
   );
 };
 
@@ -18,11 +19,11 @@ const generateAccessToken = (user) => {
 const generateRefreshToken = (user) => {
   return jwt.sign(
     {
-      username: user.username,
+      email: user.email,
       role: user.role,
       jti: crypto.randomUUID() // unique token id
     },
-    process.env.JWT_SECRET,
+    process.env.JWT_SECRET_REFRESH, // separate secret for refresh token
     { expiresIn: '7d', algorithm: 'HS256' }
   );
 };
