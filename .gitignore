@@ -1,0 +1,18 @@
+npm-debug.log*
+# Dependencies
+node_modules/
+
+dist/
+
+.env
+
+# System Files
+.DS_Store
+Thumbs.db
+
+# Editor settings
+.vscode/
+.idea/
+
+# Logs
+*.log
