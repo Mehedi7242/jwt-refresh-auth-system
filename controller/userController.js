@@ -55,9 +55,18 @@ export const registerController = async (req, res) => {
 
     const user = await User.create({ username, email, password: hashedPassword, role: "user" });
 
+    // Auto-login user after registration
+    const accessToken = generateAccessToken({ id: user.id, email: user.email, role: user.role });
+    const refreshToken = generateRefreshToken({ id: user.id, email: user.email, role: user.role });
+
+    // Save refresh token and send cookie
+    await user.update({ refreshToken });
+    res.cookie("refreshToken", refreshToken, { httpOnly: true, secure: true });
+
     return res.status(201).json({
-      message: "User registered successfully",
-      user: { id: user.id, email: user.email, username: user.username },
+      message: "User registered and logged in successfully",
+      accessToken,
+      user: { id: user.id, email: user.email, username: user.username, role: user.role },
     });
   } catch (error) {
     console.error("Register Error:", error);
@@ -196,149 +205,3 @@ export const resetPasswordController = async (req, res) => {
 
 
 
-// export const submitReviewController = async (req, res) => {
-//   try {
-//     const { restaurantId, rating, comment } = req.body;
-//     const userId = req.user.id; // from auth middleware
-//     console.log(req.user)
-//     // 1️⃣ Validation
-//     if (!restaurantId || !rating) {
-//       return res.status(400).json({ message: "Restaurant and rating are required" });
-//     }
-
-//     if (rating < 1 || rating > 5) {
-//       return res.status(400).json({ message: "Rating must be between 1 and 5" });
-//     }
-
-//     // 2️⃣ Check restaurant exists
-//     const restaurant = await Restaurant.findByPk(restaurantId);
-//     if (!restaurant) {
-//       return res.status(404).json({ message: "Restaurant not found" });
-//     }
-
-//     // 3️⃣ Check if user already reviewed this restaurant
-//     const existingReview = await Review.findOne({
-//       where: { UserId: userId, RestaurantId: restaurantId },
-//     });
-
-//     if (existingReview) {
-//       return res.status(409).json({ message: "You already reviewed this restaurant" });
-//     }
-
-//     // 4️⃣ Create review
-//     const review = await Review.create({
-//       rating,
-//       comment,
-//       UserId: userId,
-//       RestaurantId: restaurantId,
-//     });
-
-//     // 5️⃣ Update restaurant average rating
-//     const reviews = await Review.findAll({
-//       where: { RestaurantId: restaurantId },
-//     });
-
-//     const totalReviews = reviews.length;
-//     const avgRating =
-//       reviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews;
-
-//     await restaurant.update({
-//       averageRating: avgRating.toFixed(2),
-//       totalReviews: totalReviews,
-//     });
-
-//     return res.status(201).json({
-//       message: "Review submitted successfully",
-//       // review,
-//     });
-//   } catch (error) {
-//     console.error("Submit Review Error:", error);
-//     return res.status(500).json({ message: "Internal server error" });
-//   }
-// };
-
-
-export const submitReviewController = async (req, res) => {
-  try {
-    const { name, googleMapsUrl, rating, comment } = req.body;
-
-    if (!req.user?.id) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const userId = req.user.id;
-
-    // 1️⃣ Validation
-    if (!name || !googleMapsUrl || !rating) {
-      return res.status(400).json({
-        message: "Restaurant name, link and rating are required",
-      });
-    }
-
-    if (rating < 1 || rating > 5) {
-      return res.status(400).json({
-        message: "Rating must be between 1 and 5",
-      });
-    }
-
-    // 2️⃣ Find or Create Restaurant
-    let restaurant = await Restaurant.findOne({
-      where: { googleMapsUrl },
-    });
-
-    if (!restaurant) {
-      restaurant = await Restaurant.create({
-        name,
-        googleMapsUrl,
-      });
-    }
-
-    // 3️⃣ Prevent duplicate review
-    const existingReview = await Review.findOne({
-      where: {
-        UserId: userId,
-        RestaurantId: restaurant.id,
-      },
-    });
-
-    if (existingReview) {
-      return res.status(409).json({
-        message: "You already reviewed this restaurant",
-      });
-    }
-
-    // 4️⃣ Create Review
-    const review = await Review.create({
-      rating,
-      comment,
-      UserId: userId,
-      RestaurantId: restaurant.id,
-    });
-
-    // 5️⃣ Optimized rating update
-    const newTotalReviews = restaurant.totalReviews + 1;
-
-    const newAverage =
-      (restaurant.averageRating * restaurant.totalReviews + rating) /
-      newTotalReviews;
-
-    await restaurant.update({
-      averageRating: newAverage.toFixed(2),
-      totalReviews: newTotalReviews,
-    });
-
-    return res.status(201).json({
-      message: "Review submitted successfully",
-      review,
-      restaurant: {
-        id: restaurant.id,
-        name: restaurant.name,
-        averageRating: newAverage.toFixed(2),
-        totalReviews: newTotalReviews,
-      },
-    });
-  } catch (error) {
-    console.error("Submit Review Error:", error);
-    return res.status(500).json({ message: "Internal server error" });
-  }
-};
