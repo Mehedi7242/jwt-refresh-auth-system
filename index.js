@@ -3,8 +3,13 @@ import { dbConnection } from "./db/dbconnection.js";
 import router from "./route/routes.js";
 import cookieParser from "cookie-parser";
 import "dotenv/config";
+import cors from "cors"
 
 const app = express();
+app.use(cors({
+    origin:'http://localhost:3000',
+    credentials:true
+}))
 app.use(express.json());
 app.use(cookieParser());
 const port = process.env.PORT || 5000;

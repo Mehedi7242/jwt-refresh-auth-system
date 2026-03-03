@@ -32,3 +32,9 @@ auth-backend-api/
 ├── .env                   # Environment variables (ignored)
 ├── index.js               # Entry point
 └── package.json           # Dependencies & scripts
+
+
+
+
+//host: 'localhost', // ths is for local development
+// host: 'host.docker.internal', // this is for docker

@@ -14,7 +14,8 @@ export const dbConnection = async () => {
         process.env.DB_USER,
         process.env.DB_PASSWORD,
         {
-        host: 'localhost',
+        host: 'localhost', // ths is for local development
+        // host: 'host.docker.internal', // ✅ important for Docker
         dialect: 'postgres',
     })
 
